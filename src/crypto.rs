@@ -10,7 +10,7 @@ pub struct Identity {
     node_id: String,
     cert_der: CertificateDer<'static>,
     private_key_der: PrivateKeyDer<'static>,
-    pub_key_hash: String,
+    _pub_key_hash: String,
 }
 
 impl Identity {
@@ -50,8 +50,12 @@ impl Identity {
             node_id,
             cert_der,
             private_key_der,
-            pub_key_hash,
+            _pub_key_hash: pub_key_hash,
         })
 
+    }
+
+    pub fn public_key_hash(&self) -> &String {
+        &self._pub_key_hash
     }
 }
