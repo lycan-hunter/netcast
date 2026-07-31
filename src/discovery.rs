@@ -44,7 +44,7 @@ pub struct BeaconBroadcast {
 impl BeaconBroadcast {
     pub fn new(node_id: String, pub_key_hex: String, name: String, os: String, port: u16) -> Result<Self, mdns_sd::Error> {
         // let new_mdns = ServiceDaemon::new()?;
-        Ok(BeaconBroadcast { 
+        Ok(Self { 
             found_nodes: vec![], 
             mdns: ServiceDaemon::new()?, 
             own_beacon_packet: 
@@ -61,5 +61,4 @@ impl BeaconBroadcast {
         &self.found_nodes
     }
 
-    pub fn start_beacon(&self) {}
 }
