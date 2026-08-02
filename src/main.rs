@@ -18,7 +18,7 @@ fn main() {
     let b = BeaconEther::new(a).unwrap();
     let data = vec![9u8; 256];
     loop {
-    b.send_beacon(&data);
+    b.send_beacon_broadcast(&data);
     println!("Sent!");
     sleep(time::Duration::from_secs(2));
     }

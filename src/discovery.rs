@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::net::{UdpSocket, Ipv4Addr, SocketAddrV4};
 use pnet_datalink;
 
+mod packet;
+
 pub const NETCAST_PORT: u16 = 31337;
 
 pub struct BeaconPacket {
@@ -60,7 +62,7 @@ impl BeaconEther {
         )
     }
 
-    pub fn send_beacon(&self, payload: &[u8]) -> Vec<std::io::Result<usize>> {
+    pub fn send_beacon_broadcast(&self, payload: &[u8]) -> Vec<std::io::Result<usize>> {
         let mut ret: Vec<std::io::Result<usize>> = vec![];
         for ip_bcast in &self.interfaces {
             ret.push(self.sock
