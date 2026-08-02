@@ -4,52 +4,20 @@ use std::net::{UdpSocket, Ipv4Addr, SocketAddrV4};
 use pnet_datalink;
 
 pub mod packet;
+use packet::{ResponsePayload, NCNRPPacket};
 
 pub const NETCAST_PORT: u16 = 31337;
 
-pub struct BeaconPacket {
-    pub node_id: String,
-    pub pub_key_hash: String,
-    pub name: String,
-    pub os: String,
-    pub port: u16,
-}
-
-impl BeaconPacket {
-    pub fn into_service_info(&self) {
-        let instance_name = self.name.clone();
-
-        let host_name = format!("{}.local.", self.node_id);
-
-        let mut txt_data: HashMap <String, String> = HashMap::new();
-        txt_data.insert("node_id".to_string(), self.node_id.clone());
-        txt_data.insert("pub_key_hash".to_string(), self.pub_key_hash.clone());
-        txt_data.insert("name".to_string(), self.name.clone());
-        txt_data.insert("os".to_string(), self.os.clone());
-    }
-
-    pub fn new() -> Self {
-        Self {
-            node_id: String::from(""),
-            pub_key_hash: String::from(""),
-            name: String::from(""),
-            os: String::from(""),
-            port: 0,
-            
-        }
-    }
-}
-
 // NetCast Node Resolution Protocol
 pub struct BeaconEther {
-    found_nodes: Vec<BeaconPacket>,
+    found_nodes: Vec<ResponsePayload>,
     sock: UdpSocket,
-    pub own_bp: BeaconPacket,
+    pub own_bp: ResponsePayload,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
 }
 
 impl BeaconEther {
-    pub fn new(bp: BeaconPacket) -> Result<Self, std::io::Error> {
+    pub fn new(bp: ResponsePayload) -> Result<Self, std::io::Error> {
         let sock = UdpSocket::bind(("0.0.0.0", NETCAST_PORT))?;
         // sock.set_broadcast(true)?;
         sock.set_broadcast(true)?;
@@ -77,7 +45,7 @@ impl BeaconEther {
         self.sock.recv_from(buf)
     }
 
-    pub fn found_nodes(&self) -> &Vec<BeaconPacket> {
+    pub fn found_nodes(&self) -> &Vec<ResponsePayload> {
         &self.found_nodes
     }
 

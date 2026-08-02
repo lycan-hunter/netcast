@@ -5,7 +5,7 @@ mod crypto;
 use core::time;
 use std::thread::sleep;
 
-use discovery::{BeaconEther, BeaconPacket};
+use discovery::BeaconEther;
 
 use discovery::packet::{NCNRPPacket, ResponsePayload};
 
@@ -17,7 +17,7 @@ use rustls::client::Tls12Resumption::Disabled;
 
 fn main() {
 
-    let a = BeaconPacket::new();
+    let a = ResponsePayload::new();
     let b = BeaconEther::new(a).unwrap();
 
     let data = NCNRPPacket::Request;
