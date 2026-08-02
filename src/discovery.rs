@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::net::{UdpSocket, Ipv4Addr, SocketAddrV4};
 use pnet_datalink;
 
-mod packet;
+pub mod packet;
 
 pub const NETCAST_PORT: u16 = 31337;
 

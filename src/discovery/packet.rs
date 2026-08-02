@@ -1,6 +1,6 @@
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum NCNRPPacket {
+pub enum NCNRPPacket {
     Request = 0x01,
     Response(ResponsePayload) = 0x02,
 }
