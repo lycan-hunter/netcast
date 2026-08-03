@@ -76,7 +76,6 @@ pub struct ResponsePayload {
     pub tcp_port: u16,
     pub os_family: String,
     pub pub_key_hash: [u8; 32],
-    pub node_id: String,
     pub name: String,
 }
 
@@ -85,10 +84,9 @@ impl ResponsePayload {
         Self { 
             ttl_seconds: 900,
             tcp_port: 0,
-            os_family: String::from(""),
+            os_family: String::new(),
             pub_key_hash: [0u8; 32],
-            node_id: String::from(""), 
-            name: String::from("")
+            name: String::new()
         }
     }
 
@@ -103,7 +101,7 @@ impl ResponsePayload {
 
         // -- Dynamic length fields --
 
-        for s in [&self.os_family, &self.node_id, &self.name] {
+        for s in [&self.os_family, &self.name] {
             let bytes = s.as_bytes();
             let len = bytes.len().min(255) as u8;
             buf.push(len);
@@ -143,14 +141,13 @@ impl ResponsePayload {
         };
 
         let os_family = read_str(&mut pos)?;
-        let node_id = read_str(&mut pos)?;
         let name = read_str(&mut pos)?;
 
         if pos != bytes.len() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Extra garbage or size mismatch"));
         }
 
-        Ok(Self { ttl_seconds, tcp_port, os_family, pub_key_hash, node_id, name })
+        Ok(Self { ttl_seconds, tcp_port, os_family, pub_key_hash, name })
     }
 }
 
@@ -198,8 +195,6 @@ impl ResponsePayload {
 // |                                                               |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 // | OS Fam Length | OS Family String  (variable length, max 255)  |
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-// | Node ID Length| Node ID String    (variable length, max 255)  |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 // |  Name Length  | Name String       (variable length, max 255)  |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+

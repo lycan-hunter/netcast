@@ -1,4 +1,4 @@
-// TODO: make own protocol
+// TODO: Make recv methods 
 use std::collections::HashMap;
 use std::net::{UdpSocket, Ipv4Addr, SocketAddrV4};
 use pnet_datalink;
