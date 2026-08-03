@@ -41,7 +41,11 @@ impl BeaconEther {
 
     }
 
-    pub fn recv_beacon(&self, buf: &mut [u8]) -> std::io::Result<(usize, std::net::SocketAddr)> {
+    pub fn send_response_to(&self, ip: SocketAddrV4) -> std::io::Result<usize> {
+        self.sock.send_to(&self.own_bp.serialize(), ip)
+    }
+
+    pub fn recv_packet(&self, buf: &mut [u8]) -> std::io::Result<(usize, std::net::SocketAddr)> {
         self.sock.recv_from(buf)
     }
 

@@ -1,3 +1,5 @@
+use std::io;
+
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NCNRPPacket {
@@ -27,6 +29,43 @@ impl NCNRPPacket {
 
         buf
 
+    }
+    pub fn deserialize(bytes: &[u8]) -> io::Result<Self> {
+        if bytes.len() < 8 || bytes.len() > 812 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Bad packet size"));
+        }
+        if &bytes[0..2] != b"NC" {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid magic"));
+        }
+        if bytes[2] != 1 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported version"));
+        }
+
+        let packet_type = bytes[3];
+        let payload_len = u32::from_be_bytes(
+            bytes.get(4..8)
+                .and_then(|b| b.try_into().ok())
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Truncated length"))?
+        ) as usize;
+
+        match packet_type {
+            0x01 => {
+                if payload_len != 0 || bytes.len() != 8 {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Request must be empty"));
+                }
+                Ok(NCNRPPacket::Request)
+            }
+            0x02 => {
+                let start = 8;
+                let end = start + payload_len;
+                let payload_bytes = bytes.get(start..end)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Payload truncated"))?;
+
+                let payload = ResponsePayload::deserialize(payload_bytes)?;
+                Ok(NCNRPPacket::Response(payload))
+            }
+            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown packet type")),
+        }
     }
 }
 
@@ -64,24 +103,103 @@ impl ResponsePayload {
 
         // -- Dynamic length fields --
 
-        let os_bytes = self.os_family.as_bytes();
-        let os_len = self.os_family.len().min(255) as u8;
-
-        buf.push(os_len);
-        buf.extend_from_slice(os_bytes);
-
-        let node_bytes = self.node_id.as_bytes();
-        let node_len = self.node_id.len().min(255) as u8;
-
-        buf.push(node_len);
-        buf.extend_from_slice(node_bytes);
-
-        let name_bytes = self.name.as_bytes();
-        let name_len = self.name.len().min(255) as u8;
-
-        buf.push(name_len);
-        buf.extend_from_slice(name_bytes);
+        for s in [&self.os_family, &self.node_id, &self.name] {
+            let bytes = s.as_bytes();
+            let len = bytes.len().min(255) as u8;
+            buf.push(len);
+            buf.extend_from_slice(&bytes[..len as usize]);
+        }
 
         buf
     }
+
+    fn deserialize(bytes: &[u8]) -> io::Result<Self> {
+        let mut pos = 0;
+
+        let mut read_bytes = |len: usize| -> io::Result<&[u8]> {
+            let res = bytes.get(pos..pos + len)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Data truncated"))?;
+            pos += len;
+            Ok(res)
+        };
+
+        let ttl_seconds = u16::from_be_bytes(read_bytes(2)?.try_into().unwrap());
+        let tcp_port = u16::from_be_bytes(read_bytes(2)?.try_into().unwrap());
+        
+        let mut pub_key_hash = [0u8; 32];
+        pub_key_hash.copy_from_slice(read_bytes(32)?);
+
+        let mut read_str = |pos: &mut usize| -> io::Result<String> {
+            let len = *bytes.get(*pos)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "String len missing"))? as usize;
+            *pos += 1;
+
+            let str_bytes = bytes.get(*pos..*pos + len)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "String truncated"))?;
+            *pos += len;
+
+            String::from_utf8(str_bytes.to_vec())
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        };
+
+        let os_family = read_str(&mut pos)?;
+        let node_id = read_str(&mut pos)?;
+        let name = read_str(&mut pos)?;
+
+        if pos != bytes.len() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Extra garbage or size mismatch"));
+        }
+
+        Ok(Self { ttl_seconds, tcp_port, os_family, pub_key_hash, node_id, name })
+    }
 }
+
+
+//  #####################################
+//  #   Request Packet Specification    #
+//  #####################################
+
+// Byte 0 ......... Byte 1 ........ Byte 2 ........ Byte 3 ........
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |      'N'      |      'C'      |  Version (1)  |  Type (0x01)  |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                       Payload Length (0)                      |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+//  ######################################
+//  #   Response Packet Specification    #
+//  ######################################
+
+// Byte 0 ......... Byte 1 ........ Byte 2 ........ Byte 3 ........
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |      'N'      |      'C'      |  Version (1)  |  Type (0x02)  |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                         Payload Length                        |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                                                               |
+//                Response Payload (struct is below)
+// |                                                               |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+//  #######################################
+//  #   Response Payload Specification    #
+//  #######################################
+
+// Byte 0 ......... Byte 1 ........ Byte 2 ........ Byte 3 ........
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |          TTL Seconds          |           TCP Port            |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                                                               |
+// +                                                               +
+// |                    Public Key Hash (32 bytes)                 |
+// +                                                               +
+// |                                                               |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// | OS Fam Length | OS Family String  (variable length, max 255)  |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// | Node ID Length| Node ID String    (variable length, max 255)  |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |  Name Length  | Name String       (variable length, max 255)  |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
