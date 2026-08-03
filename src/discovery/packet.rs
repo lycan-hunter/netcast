@@ -71,7 +71,7 @@ impl NCNRPPacket {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponsePayload {
-    // ALL "String" 255 BYTES LENGHT MAX !
+    // ALL "String" 255 BYTES LENGTH MAX !
     pub ttl_seconds: u16,
     pub tcp_port: u16,
     pub os_family: String,
@@ -81,7 +81,7 @@ pub struct ResponsePayload {
 }
 
 impl ResponsePayload {
-    pub fn new() -> Self {
+    pub fn default() -> Self {
         Self { 
             ttl_seconds: 900,
             tcp_port: 0,

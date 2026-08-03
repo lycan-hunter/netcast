@@ -12,34 +12,49 @@ pub const NETCAST_PORT: u16 = 31337;
 pub struct BeaconEther {
     found_nodes: Vec<ResponsePayload>,
     sock: UdpSocket,
-    pub own_bp: ResponsePayload,
+    pub own_bp: NCNRPPacket,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
 }
 
 impl BeaconEther {
     pub fn new(bp: ResponsePayload) -> Result<Self, std::io::Error> {
         let sock = UdpSocket::bind(("0.0.0.0", NETCAST_PORT))?;
-        // sock.set_broadcast(true)?;
         sock.set_broadcast(true)?;
         Ok(Self { 
             found_nodes: vec![], 
             sock: sock,
-            own_bp: bp,
+            own_bp: NCNRPPacket::Response(bp),
             interfaces: BeaconEther::get_all_bcast_targets(),
             }
         )
     }
 
-    pub fn send_beacon_broadcast(&self, payload: &[u8]) -> Vec<std::io::Result<usize>> {
+    pub fn send_request_broadcast(&self) -> Vec<std::io::Result<usize>> {
         let mut ret: Vec<std::io::Result<usize>> = vec![];
         for ip_bcast in &self.interfaces {
             ret.push(self.sock
-                .send_to(payload,
+                .send_to(&NCNRPPacket::Request.serialize(),
                      SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)));
         }
         ret
 
     }
+
+    pub fn send_request_to(&self, ip: SocketAddrV4) -> std::io::Result<usize> {
+        self.sock.send_to(&NCNRPPacket::Request.serialize(), ip)
+    }
+
+
+    pub fn send_response_broadcast(&self) -> Vec<std::io::Result<usize>> {
+        let mut ret: Vec<std::io::Result<usize>> = vec![];
+        for ip_bcast in &self.interfaces {
+            ret.push(self.sock
+                .send_to(&self.own_bp.serialize(),
+                     SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)));
+        }
+        ret
+
+    } 
 
     pub fn send_response_to(&self, ip: SocketAddrV4) -> std::io::Result<usize> {
         self.sock.send_to(&self.own_bp.serialize(), ip)
