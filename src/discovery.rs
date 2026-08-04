@@ -14,6 +14,7 @@ pub struct BeaconEther {
     sock: UdpSocket,
     pub own_bp: NCNRPPacket,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
+    buf: [u8; 812]
 }
 
 impl BeaconEther {
@@ -61,9 +62,8 @@ impl BeaconEther {
     }
 
     pub fn recv_packet(& mut self) -> std::io::Result<(NCNRPPacket, SocketAddrV4)> {
-        let mut buf = [0u8; 812];
-        let (byte_len, sock_dst) = self.sock.recv_from(&mut buf)?;
-        let packet = NCNRPPacket::deserialize(&buf[..byte_len])?;
+        let (byte_len, sock_dst) = self.sock.recv_from(&mut self.buf)?;
+        let packet = NCNRPPacket::deserialize(&self.buf[..byte_len])?;
         if let NCNRPPacket::Response(rp) = &packet {
             self.add_found_node(rp.clone());
         }
@@ -99,12 +99,11 @@ impl BeaconEther {
     }
 
     fn add_found_node(&mut self, rp: ResponsePayload) {
-        for node in &self.found_nodes {
-            if rp.pub_key_hash == node.pub_key_hash {
-                return;
-            }
+        if let Some(existing) = self.found_nodes.iter_mut().find(|n| n.pub_key_hash == rp.pub_key_hash) {
+            *existing = rp;
+        } else {
+            self.found_nodes.push(rp);
         }
-        self.found_nodes.push(rp);
     }
 
 }
