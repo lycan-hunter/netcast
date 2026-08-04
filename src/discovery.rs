@@ -1,5 +1,4 @@
-// TODO: Make recv methods 
-use std::collections::HashMap;
+// TODO: Make recv methods async/multithreaded
 use std::net::{UdpSocket, Ipv4Addr, SocketAddrV4};
 use pnet_datalink;
 
@@ -18,17 +17,21 @@ pub struct BeaconEther {
 }
 
 impl BeaconEther {
-    pub fn new(bp: ResponsePayload) -> Result<Self, std::io::Error> {
-        let sock = UdpSocket::bind(("0.0.0.0", NETCAST_PORT))?;
+    pub fn new_with_port(bp: ResponsePayload, port: u16) -> Result<Self, std::io::Error> {
+        let sock = UdpSocket::bind(("0.0.0.0", port))?;
         sock.set_broadcast(true)?;
         Ok(Self { 
             found_nodes: vec![], 
-            sock: sock,
+            sock,
             own_bp: NCNRPPacket::Response(bp),
             interfaces: BeaconEther::get_all_bcast_targets(),
             buf: [0u8; 812],
             }
         )
+    }
+
+    pub fn new(bp: ResponsePayload) -> Result<Self, std::io::Error> {
+        BeaconEther::new_with_port(bp, NETCAST_PORT)
     }
 
     pub fn send_request_broadcast(&self) -> Vec<std::io::Result<usize>> {

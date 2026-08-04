@@ -127,7 +127,7 @@ impl ResponsePayload {
         let mut pub_key_hash = [0u8; 32];
         pub_key_hash.copy_from_slice(read_bytes(32)?);
 
-        let mut read_str = |pos: &mut usize| -> io::Result<String> {
+        let read_str = |pos: &mut usize| -> io::Result<String> {
             let len = *bytes.get(*pos)
                 .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "String len missing"))? as usize;
             *pos += 1;
