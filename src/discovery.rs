@@ -60,8 +60,20 @@ impl BeaconEther {
         self.sock.send_to(&self.own_bp.serialize(), ip)
     }
 
-    pub fn recv_packet(&self, buf: &mut [u8]) -> std::io::Result<(usize, std::net::SocketAddr)> {
-        self.sock.recv_from(buf)
+    pub fn recv_packet(& mut self) -> std::io::Result<(NCNRPPacket, SocketAddrV4)> {
+        let mut buf = [0u8; 812];
+        let (byte_len, sock_dst) = self.sock.recv_from(&mut buf)?;
+        let packet = NCNRPPacket::deserialize(&buf[..byte_len])?;
+        if let NCNRPPacket::Response(rp) = &packet {
+            self.add_found_node(rp.clone());
+        }
+        if let std::net::SocketAddr::V4(v4_addr) = sock_dst {
+            Ok((packet, v4_addr))
+        } else {
+            Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "IPv6 addr not supported yet"))
+        }
+        
+
     }
 
     pub fn found_nodes(&self) -> &Vec<ResponsePayload> {
@@ -84,6 +96,15 @@ impl BeaconEther {
         }
 
         targets
+    }
+
+    fn add_found_node(&mut self, rp: ResponsePayload) {
+        for node in &self.found_nodes {
+            if rp.pub_key_hash == node.pub_key_hash {
+                return;
+            }
+        }
+        self.found_nodes.push(rp);
     }
 
 }
