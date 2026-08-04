@@ -26,6 +26,7 @@ impl BeaconEther {
             sock: sock,
             own_bp: NCNRPPacket::Response(bp),
             interfaces: BeaconEther::get_all_bcast_targets(),
+            buf: [0u8; 812],
             }
         )
     }
