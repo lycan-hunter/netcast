@@ -7,13 +7,20 @@ use packet::{ResponsePayload, NCNRPPacket};
 
 pub const NETCAST_PORT: u16 = 31337;
 
+pub enum WorkStatus {
+    Idle,
+    Busy,
+}
+
 // NetCast Node Resolution Protocol
 pub struct BeaconEther {
     found_nodes: Vec<ResponsePayload>,
     sock: UdpSocket,
     pub own_bp: NCNRPPacket,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
-    buf: [u8; 812]
+    buf: [u8; 812],
+    pub status: WorkStatus
+
 }
 
 impl BeaconEther {
@@ -26,6 +33,7 @@ impl BeaconEther {
             own_bp: NCNRPPacket::Response(bp),
             interfaces: BeaconEther::get_all_bcast_targets(),
             buf: [0u8; 812],
+            status: WorkStatus::Idle,
             }
         )
     }

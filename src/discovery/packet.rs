@@ -86,7 +86,18 @@ impl ResponsePayload {
             tcp_port: 0,
             os_family: String::new(),
             pub_key_hash: [0u8; 32],
-            name: String::new()
+            name: String::new(),
+        }
+    }
+
+    pub fn new(ttl_seconds: u16, tcp_port: u16, os_family: String, 
+        pub_key_hash: [u8; 32], name: String) -> Self {
+        Self { 
+            ttl_seconds,
+            tcp_port,
+            os_family,
+            pub_key_hash,
+            name,
         }
     }
 
