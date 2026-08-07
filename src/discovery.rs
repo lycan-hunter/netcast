@@ -1,9 +1,11 @@
 // TODO: Make recv methods async/multithreaded
 use std::net::{UdpSocket, Ipv4Addr, SocketAddrV4};
+use std::time;
 use pnet_datalink;
 
 pub mod packet;
 use packet::{ResponsePayload, NCNRPPacket};
+
 
 pub const NETCAST_PORT: u16 = 31337;
 
@@ -14,7 +16,7 @@ pub enum WorkStatus {
 
 // NetCast Node Resolution Protocol
 pub struct BeaconEther {
-    found_nodes: Vec<ResponsePayload>,
+    found_nodes: Vec<(ResponsePayload, time::Instant)>,
     sock: UdpSocket,
     pub own_bp: NCNRPPacket,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
@@ -88,7 +90,7 @@ impl BeaconEther {
 
     }
 
-    pub fn found_nodes(&self) -> &Vec<ResponsePayload> {
+    pub fn found_nodes(&self) -> &Vec<(ResponsePayload, time::Instant)> {
         &self.found_nodes
     }
 
@@ -111,11 +113,13 @@ impl BeaconEther {
     }
 
     fn add_found_node(&mut self, rp: ResponsePayload) {
-        if let Some(existing) = self.found_nodes.iter_mut().find(|n| n.pub_key_hash == rp.pub_key_hash) {
-            *existing = rp;
-        } else {
-            self.found_nodes.push(rp);
-        }
+            let deadline = time::Instant::now() + time::Duration::from_secs(rp.ttl_seconds as u64);
+
+            if let Some(existing) = self.found_nodes.iter_mut().find(|n| n.0.pub_key_hash == rp.pub_key_hash) {
+                *existing = (rp, deadline);
+            } else {
+                self.found_nodes.push((rp, deadline));
+            }
     }
 
 }
