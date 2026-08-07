@@ -1,7 +1,9 @@
 mod discovery;
 mod crypto;
+mod channel;
 
 use log::{error, warn, info, debug, trace};
+use rand::Rng;
 use env_logger::{Builder, Env, WriteStyle};
 use std::thread;
 use std::time;
@@ -38,17 +40,22 @@ fn main() {
         }
         thread::sleep(time::Duration::from_secs(3));
     }
-
+    
+    let mut rng = rand::rng();
     loop {
         match ether.recv_packet() {
+
             Ok((NCNRPPacket::Request, addr)) => {
+
+                thread::sleep(time::Duration::from_millis(rng.random_range(16..=120)));
+
                 match ether.send_response_to(addr) {
                     Err(msg) => error!("Failed to send response: {}", msg),
                     Ok(_) => (),
                 }
             }
 
-            Ok((NCNRPPacket::Response(response), addr)) => 
+            Ok((NCNRPPacket::Response(_), addr)) => 
                 info!("Recieved response packet from '{}'", addr.to_string()),
             
             Err(msg) => error!("Failed to recieve packet: {}", msg),
