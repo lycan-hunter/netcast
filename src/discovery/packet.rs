@@ -132,8 +132,17 @@ impl ResponsePayload {
             Ok(res)
         };
 
-        let ttl_seconds = u16::from_be_bytes(read_bytes(2)?.try_into().unwrap());
-        let tcp_port = u16::from_be_bytes(read_bytes(2)?.try_into().unwrap());
+        let ttl_seconds = u16::from_be_bytes(
+            read_bytes(2)?
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        );
+
+        let tcp_port = u16::from_be_bytes(
+            read_bytes(2)?
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        );
         
         let mut pub_key_hash = [0u8; 32];
         pub_key_hash.copy_from_slice(read_bytes(32)?);
