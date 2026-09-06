@@ -1,7 +1,8 @@
-// TODO: Make recv methods async/multithreaded
-use std::net::{UdpSocket, Ipv4Addr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::time;
 use pnet_datalink;
+use tokio::net::UdpSocket;
+use dashmap::DashMap;
 
 pub mod packet;
 use packet::{ResponsePayload, NCNRPPacket};
@@ -9,75 +10,71 @@ use packet::{ResponsePayload, NCNRPPacket};
 
 pub const NETCAST_PORT: u16 = 31337;
 
-pub enum WorkStatus {
-    Idle,
-    Busy,
+// NetCast Node Resolution Protocol
+struct FoundNodeInfo {
+    payload: ResponsePayload,
+    deadline: time::Instant,
 }
 
-// NetCast Node Resolution Protocol
 pub struct BeaconEther {
-    found_nodes: Vec<(ResponsePayload, time::Instant)>,
+    found_nodes: dashmap::DashMap<[u8;32], FoundNodeInfo>,
     sock: UdpSocket,
     pub own_bp: NCNRPPacket,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
-    buf: [u8; 812],
-    pub status: WorkStatus
-
 }
 
 impl BeaconEther {
-    pub fn new_with_port(bp: ResponsePayload, port: u16) -> Result<Self, std::io::Error> {
-        let sock = UdpSocket::bind(("0.0.0.0", port))?;
+    pub async fn new_with_port(bp: ResponsePayload, port: u16) -> Result<Self, std::io::Error> {
+        let sock = UdpSocket::bind(("0.0.0.0", port)).await?;
         sock.set_broadcast(true)?;
         Ok(Self { 
-            found_nodes: vec![], 
+            found_nodes: DashMap::new(), 
             sock,
             own_bp: NCNRPPacket::Response(bp),
             interfaces: BeaconEther::get_all_bcast_targets(),
-            buf: [0u8; 812],
-            status: WorkStatus::Idle,
             }
         )
     }
 
-    pub fn new(bp: ResponsePayload) -> Result<Self, std::io::Error> {
-        BeaconEther::new_with_port(bp, NETCAST_PORT)
+    pub async fn new(bp: ResponsePayload) -> Result<Self, std::io::Error> {
+        BeaconEther::new_with_port(bp, NETCAST_PORT).await
     }
 
-    pub fn send_request_broadcast(&self) -> Vec<std::io::Result<usize>> {
+    pub async fn send_request_broadcast(&self) -> Vec<std::io::Result<usize>> {
         let mut ret: Vec<std::io::Result<usize>> = vec![];
         for ip_bcast in &self.interfaces {
             ret.push(self.sock
                 .send_to(&NCNRPPacket::Request.serialize(),
-                     SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)));
+                     SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)).await);
         }
         ret
 
     }
 
-    pub fn send_request_to(&self, ip: SocketAddrV4) -> std::io::Result<usize> {
-        self.sock.send_to(&NCNRPPacket::Request.serialize(), ip)
+    pub async fn send_request_to(&self, ip: SocketAddrV4) -> std::io::Result<usize> {
+        self.sock.send_to(&NCNRPPacket::Request.serialize(), ip).await
     }
 
 
-    pub fn send_response_broadcast(&self) -> Vec<std::io::Result<usize>> {
+    pub async fn send_response_broadcast(&self) -> Vec<std::io::Result<usize>> {
         let mut ret: Vec<std::io::Result<usize>> = vec![];
         for ip_bcast in &self.interfaces {
             ret.push(self.sock
                 .send_to(&self.own_bp.serialize(),
-                     SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)));
+                     SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)).await);
         }
         ret
 
     } 
 
-    pub fn send_response_to(&self, ip: SocketAddrV4) -> std::io::Result<usize> {
-        self.sock.send_to(&self.own_bp.serialize(), ip)
+    pub async fn send_response_to(&self, ip: SocketAddrV4) -> std::io::Result<usize> {
+        self.sock.send_to(&self.own_bp.serialize(), ip).await
     }
 
-    pub fn recv_packet(& mut self) -> std::io::Result<(NCNRPPacket, SocketAddrV4)> {
-        let (byte_len, sock_dst) = self.sock.recv_from(&mut self.buf)?;
-        let packet = NCNRPPacket::deserialize(&self.buf[..byte_len])?;
+    pub async fn recv_packet(&self) -> std::io::Result<(NCNRPPacket, SocketAddrV4)> {
+        let mut buf = [0u8; 812];
+        let (byte_len, sock_dst) = self.sock.recv_from(&mut buf).await?;
+        let packet = NCNRPPacket::deserialize(&buf[..byte_len])?;
         if let NCNRPPacket::Response(rp) = &packet {
             self.add_found_node(rp.clone());
         }
@@ -90,8 +87,20 @@ impl BeaconEther {
 
     }
 
-    pub fn found_nodes(&self) -> &Vec<(ResponsePayload, time::Instant)> {
-        &self.found_nodes
+    pub fn found_nodes_gc(&self) {
+        let now = time::Instant::now();
+        self.found_nodes.retain(|_key, node| node.deadline > now);
+    }
+
+
+    pub fn found_nodes(&self) -> Vec<ResponsePayload> {
+        
+        let now = time::Instant::now();
+        
+        self.found_nodes.iter()
+            .filter(|entry| entry.value().deadline > now)
+            .map(|entry| entry.value().payload.clone())
+            .collect()
     }
 
     pub fn get_all_bcast_targets() -> Vec<(Ipv4Addr, Ipv4Addr)> {
@@ -112,14 +121,16 @@ impl BeaconEther {
         targets
     }
 
-    fn add_found_node(&mut self, rp: ResponsePayload) {
+    fn add_found_node(&self, rp: ResponsePayload) {
             let deadline = time::Instant::now() + time::Duration::from_secs(rp.ttl_seconds as u64);
+            let key = rp.pub_key_hash;
 
-            if let Some(existing) = self.found_nodes.iter_mut().find(|n| n.0.pub_key_hash == rp.pub_key_hash) {
-                *existing = (rp, deadline);
-            } else {
-                self.found_nodes.push((rp, deadline));
-            }
+            let entry = FoundNodeInfo {
+                payload: rp,
+                deadline,
+            };
+            
+            self.found_nodes.insert(key, entry);
     }
 
 }
