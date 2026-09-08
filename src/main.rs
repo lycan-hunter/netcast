@@ -46,41 +46,52 @@ async fn main() {
         thread::sleep(time::Duration::from_secs(3));
     }
 
+    // First broadcast announcement
+    let result_ann = ether.send_response_broadcast().await;
+    
+    for iface in result_ann {
+        match iface {
+            Ok(_) => (),
+            Err(msg) => 
+                error!("Failed to announcing oneself on one of interfaces: {}", msg),
+        }
+    }
+
     // Task 1: recieving/responsing
     let ether_rr = ether.clone();
     tokio::spawn( async move {
         loop {
-        match ether_rr.recv_packet().await {
+            match ether_rr.recv_packet().await {
 
-            Ok((NCNRPPacket::Request, addr)) => {
+                Ok((NCNRPPacket::Request, addr)) => {
 
-                tokio::time::sleep(time::Duration::from_millis(rand::random_range(16..=120))).await;
+                    tokio::time::sleep(time::Duration::from_millis(rand::random_range(16..=120))).await;
 
-                match ether_rr.send_response_to(addr).await {
-                    Err(msg) => error!("Failed to send response: {}", msg),
-                    Ok(_) => (),
-                }
-            }
-
-            Ok((NCNRPPacket::Response(_), addr)) => {
-                info!("Recieved response packet from '{}'", addr.to_string());
-            }
-
-            Ok((NCNRPPacket::Heartbreat(hp), addr)) => {
-                if !ether_rr.is_in_found_nodes(&hp.pub_key_hash) {
-                    match ether_rr.send_request_to(addr).await {
-                        Err(msg) => error!("Failed to send request to '{}': {}", addr.to_string(), msg),
-                        _ => (),
+                    match ether_rr.send_response_to(addr).await {
+                        Err(msg) => error!("Failed to send response: {}", msg),
+                        Ok(_) => (),
                     }
                 }
-            }
-            
-            Err(msg) => error!("Failed to recieve packet: {}", msg),
-        }
-    }
-});
 
-    // Task 2: garbadge cleaner
+                Ok((NCNRPPacket::Response(_), addr)) => {
+                    info!("Recieved response packet from '{}'", addr.to_string());
+                }
+
+                Ok((NCNRPPacket::Heartbreat(hp), addr)) => {
+                    if !ether_rr.is_in_found_nodes(&hp.pub_key_hash) {
+                        match ether_rr.send_request_to(addr).await {
+                            Err(msg) => error!("Failed to send request to '{}': {}", addr.to_string(), msg),
+                            _ => (),
+                        }
+                    }
+                }
+                
+                Err(msg) => error!("Failed to recieve packet: {}", msg),
+            }
+        }
+    });
+
+    // Task 2: garbage cleaner
         let ether_gc = ether.clone();
         tokio::spawn( async move {
             let mut tick = tokio::time::interval(time::Duration::from_secs(3u64));
@@ -90,4 +101,9 @@ async fn main() {
             }
         });
 
+    
+    info!("NetCast Deamon is up !");
+    loop {
+        tokio::time::sleep(time::Duration::from_secs(3600)).await;
+    }
 }

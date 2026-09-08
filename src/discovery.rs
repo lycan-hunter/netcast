@@ -7,6 +7,8 @@ use dashmap::DashMap;
 pub mod packet;
 use packet::{ResponsePayload, NCNRPPacket};
 
+use crate::discovery::packet::HeartbeatPayload;
+
 
 pub const NETCAST_PORT: u16 = 31337;
 
@@ -20,6 +22,7 @@ pub struct BeaconEther {
     found_nodes: dashmap::DashMap<[u8;32], FoundNodeInfo>,
     sock: UdpSocket,
     pub own_bp: NCNRPPacket,
+    own_hbp: NCNRPPacket,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
 }
 
@@ -30,7 +33,9 @@ impl BeaconEther {
         Ok(Self { 
             found_nodes: DashMap::new(), 
             sock,
-            own_bp: NCNRPPacket::Response(bp),
+            own_bp: NCNRPPacket::Response(bp.clone()),
+            own_hbp: NCNRPPacket::Heartbreat(HeartbeatPayload {
+                 ttl_seconds: 15, pub_key_hash: bp.pub_key_hash }),
             interfaces: BeaconEther::get_all_bcast_targets(),
             }
         )
@@ -93,6 +98,16 @@ impl BeaconEther {
         }
         
 
+    }
+
+    pub async fn send_heartbeat_broadcast(&self) -> Vec<std::io::Result<usize>> {
+        let mut ret: Vec<std::io::Result<usize>> = vec![];
+        for ip_bcast in &self.interfaces {
+            ret.push(self.sock
+                .send_to(&self.own_hbp.serialize(),
+                     SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)).await);
+        }
+        ret
     }
 
     pub fn found_nodes_gc(&self) {
