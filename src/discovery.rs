@@ -75,8 +75,16 @@ impl BeaconEther {
         let mut buf = [0u8; 812];
         let (byte_len, sock_dst) = self.sock.recv_from(&mut buf).await?;
         let packet = NCNRPPacket::deserialize(&buf[..byte_len])?;
-        if let NCNRPPacket::Response(rp) = &packet {
-            self.add_found_node(rp.clone());
+        match &packet {
+            NCNRPPacket::Response(rp) => {
+                self.add_found_node(rp.clone());
+            },
+            NCNRPPacket::Heartbreat(hp) => {
+                if let Some(mut node) = self.found_nodes.get_mut(&hp.pub_key_hash) {
+                    node.deadline = time::Instant::now() + time::Duration::from_secs(hp.ttl_seconds as u64);
+                }
+            },
+            _ => {},
         }
         if let std::net::SocketAddr::V4(v4_addr) = sock_dst {
             Ok((packet, v4_addr))
@@ -101,6 +109,14 @@ impl BeaconEther {
             .filter(|entry| entry.value().deadline > now)
             .map(|entry| entry.value().payload.clone())
             .collect()
+    }
+
+    pub fn is_in_found_nodes(&self, pkh: &[u8; 32]) -> bool {
+        if let Some(_) = self.found_nodes.get(pkh) {
+            true
+        } else {
+            false
+        }
     }
 
     pub fn get_all_bcast_targets() -> Vec<(Ipv4Addr, Ipv4Addr)> {

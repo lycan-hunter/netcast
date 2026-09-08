@@ -10,17 +10,18 @@ use std::time;
 use std::sync::Arc;
 
 use discovery::BeaconEther;
-use discovery::packet::{NCNRPPacket, ResponsePayload};
+use discovery::packet::{NCNRPPacket, ResponsePayload, HeartbeatPayload};
 
 
 #[tokio::main]
 async fn main() {
-
     Builder::from_env(Env::default().default_filter_or("info"))
         .format_timestamp(None) 
         .format_module_path(false) 
         .write_style(WriteStyle::Auto) 
         .init();
+
+    // let mut OWN_DEADLINE = time::Instant();
 
     let own_discovery_packet = ResponsePayload::new(
         900, 
@@ -66,7 +67,16 @@ async fn main() {
                 match ether_rr.send_response_to(addr).await {
                     Err(msg) => error!("Failed to send response: {}", msg),
                     Ok(_) => (),
-                }               
+                }
+            }
+
+            Ok((NCNRPPacket::Heartbreat(hp), addr)) => {
+                if !ether_rr.is_in_found_nodes(&hp.pub_key_hash) {
+                    match ether_rr.send_request_to(addr).await {
+                        Err(msg) => error!("Failed to send request to '{}': {}", addr.to_string(), msg),
+                        _ => (),
+                    }
+                }
             }
             
             Err(msg) => error!("Failed to recieve packet: {}", msg),

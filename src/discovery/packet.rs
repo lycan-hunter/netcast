@@ -5,7 +5,7 @@ use std::io;
 pub enum NCNRPPacket {
     Request = 0x01,
     Response(ResponsePayload) = 0x02,
-    Heartbeat(HeartbeatPayload) = 0x03,
+    Heartbreat(HeartbeatPayload) = 0x03,
 }
 
 impl NCNRPPacket {
@@ -20,16 +20,18 @@ impl NCNRPPacket {
             },
             NCNRPPacket::Response(payload) => {
                 buf.push(0x02); // Type 0x02
+
                 let payload_bytes = payload.serialize();
                 buf.extend_from_slice(&(payload_bytes.len() as u32).to_be_bytes());
                 buf.extend_from_slice(&payload_bytes);
             }
-            NCNRPPacket::Heartbeat(payload) => {
+            NCNRPPacket::Heartbreat(payload) => {
                 buf.push(0x03); // Type 0x03
                 let payload_bytes = payload.serialize();
-                buf.extend_from_slice(&payload_bytes);
+                buf.extend_from_slice(&payload_bytes); // Длина для статичного пакета не пишется
             }
         }
+
         buf
     }
 
@@ -49,7 +51,7 @@ impl NCNRPPacket {
         match packet_type {
             0x01 => {
                 if bytes.len() != 4 {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Request packet must be exactly 4 bytes"));
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Request must be empty"));
                 }
                 Ok(NCNRPPacket::Request)
             }
@@ -57,23 +59,24 @@ impl NCNRPPacket {
                 let payload_len = u32::from_be_bytes(
                     bytes.get(4..8)
                         .and_then(|b| b.try_into().ok())
-                        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Truncated length field"))?
+                        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Truncated length"))?
                 ) as usize;
 
-                if bytes.len() != 8 + payload_len {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Packet size mismatch with header length"));
-                }
+                let start = 8;
+                let end = start + payload_len;
+                let payload_bytes = bytes.get(start..end)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "Payload truncated"))?;
 
-                let payload = ResponsePayload::deserialize(&bytes[8..])?;
+                let payload = ResponsePayload::deserialize(payload_bytes)?;
                 Ok(NCNRPPacket::Response(payload))
             }
             0x03 => {
                 if bytes.len() != 38 {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Heartbeat packet must be exactly 38 bytes"));
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Heartbeat size mismatch"));
                 }
                 
                 let payload = HeartbeatPayload::deserialize(&bytes[4..])?;
-                Ok(NCNRPPacket::Heartbeat(payload))
+                Ok(NCNRPPacket::Heartbreat(payload))
             }
             _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown packet type")),
         }
@@ -82,6 +85,7 @@ impl NCNRPPacket {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponsePayload {
+    // ALL "String" 255 BYTES LENGTH MAX !
     pub ttl_seconds: u16,
     pub tcp_port: u16,
     pub os_family: String,
@@ -90,18 +94,43 @@ pub struct ResponsePayload {
 }
 
 impl ResponsePayload {
+    pub fn default() -> Self {
+        Self { 
+            ttl_seconds: 30,
+            tcp_port: 0,
+            os_family: String::new(),
+            pub_key_hash: [0u8; 32],
+            name: String::new(),
+        }
+    }
+
+    pub fn new(ttl_seconds: u16, tcp_port: u16, os_family: String, 
+        pub_key_hash: [u8; 32], name: String) -> Self {
+        Self { 
+            ttl_seconds,
+            tcp_port,
+            os_family,
+            pub_key_hash,
+            name,
+        }
+    }
+
     pub fn serialize(&self) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::new();
+
+        // -- Static length fields --
         buf.extend_from_slice(&self.ttl_seconds.to_be_bytes());
         buf.extend_from_slice(&self.tcp_port.to_be_bytes());
         buf.extend_from_slice(&self.pub_key_hash);
 
+        // -- Dynamic length fields --
         for s in [&self.os_family, &self.name] {
             let bytes = s.as_bytes();
             let len = bytes.len().min(255) as u8;
             buf.push(len);
             buf.extend_from_slice(&bytes[..len as usize]);
         }
+
         buf
     }
 
@@ -115,21 +144,36 @@ impl ResponsePayload {
             Ok(res)
         };
 
-        let ttl_seconds = u16::from_be_bytes(read_bytes(2)?.try_into().unwrap());
-        let tcp_port = u16::from_be_bytes(read_bytes(2)?.try_into().unwrap());
+        let ttl_seconds = u16::from_be_bytes(
+            read_bytes(2)?
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        );
+
+        let tcp_port = u16::from_be_bytes(
+            read_bytes(2)?
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        );
         
         let mut pub_key_hash = [0u8; 32];
         pub_key_hash.copy_from_slice(read_bytes(32)?);
 
-        let mut read_str = || -> io::Result<String> {
-            let len = *read_bytes(1)?.first().unwrap() as usize;
-            let str_bytes = read_bytes(len)?;
+        let mut read_str = |pos: &mut usize| -> io::Result<String> {
+            let len = *bytes.get(*pos)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "String len missing"))? as usize;
+            *pos += 1;
+
+            let str_bytes = bytes.get(*pos..*pos + len)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "String truncated"))?;
+            *pos += len;
+
             String::from_utf8(str_bytes.to_vec())
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
         };
 
-        let os_family = read_str()?;
-        let name = read_str()?;
+        let os_family = read_str(&mut pos)?;
+        let name = read_str(&mut pos)?;
 
         if pos != bytes.len() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Extra garbage or size mismatch"));
@@ -146,18 +190,34 @@ pub struct HeartbeatPayload {
 }
 
 impl HeartbeatPayload {
+    pub fn default() -> Self {
+        Self { 
+            ttl_seconds: 30,
+            pub_key_hash: [0u8; 32],
+        }
+    }
+
+    pub fn new(ttl_seconds: u16, pub_key_hash: [u8; 32]) -> Self {
+        Self { 
+            ttl_seconds,
+            pub_key_hash,
+        }
+    }
+
     pub fn serialize(&self) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::new();
+
         buf.extend_from_slice(&self.ttl_seconds.to_be_bytes());
         buf.extend_from_slice(&self.pub_key_hash);
+
         buf
     }
 
     fn deserialize(bytes: &[u8]) -> io::Result<Self> {
         if bytes.len() != 34 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Heartbeat size"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Heartbeat payload size"));
         }
-        let ttl_seconds = u16::from_be_bytes(bytes[0..2].try_into().unwrap());
+        let ttl_seconds = u16::from_be_bytes(bytes[0..2].try_into().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
         let mut pub_key_hash = [0u8; 32];
         pub_key_hash.copy_from_slice(&bytes[2..34]);
 
