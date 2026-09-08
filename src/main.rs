@@ -62,12 +62,8 @@ async fn main() {
                 }
             }
 
-            Ok((NCNRPPacket::Response(rp), addr)) => {
+            Ok((NCNRPPacket::Response(_), addr)) => {
                 info!("Recieved response packet from '{}'", addr.to_string());
-                match ether_rr.send_response_to(addr).await {
-                    Err(msg) => error!("Failed to send response: {}", msg),
-                    Ok(_) => (),
-                }
             }
 
             Ok((NCNRPPacket::Heartbreat(hp), addr)) => {
@@ -83,5 +79,15 @@ async fn main() {
         }
     }
 });
+
+    // Task 2: garbadge cleaner
+        let ether_gc = ether.clone();
+        tokio::spawn( async move {
+            let mut tick = tokio::time::interval(time::Duration::from_secs(3u64));
+            loop {
+                tick.tick().await;
+                ether_gc.found_nodes_gc();
+            }
+        });
 
 }
