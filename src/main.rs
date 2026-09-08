@@ -12,8 +12,10 @@ use std::sync::Arc;
 use discovery::BeaconEther;
 use discovery::packet::{NCNRPPacket, ResponsePayload};
 
+
 #[tokio::main]
 async fn main() {
+
     Builder::from_env(Env::default().default_filter_or("info"))
         .format_timestamp(None) 
         .format_module_path(false) 
