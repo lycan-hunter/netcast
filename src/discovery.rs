@@ -129,9 +129,11 @@ impl BeaconEther {
         ret
     }
 
-    pub fn found_nodes_gc(&self) {
+    pub fn found_nodes_gc(&self) -> usize {
+        let last_pool_size = self.found_nodes.len();
         let now = time::Instant::now();
         self.found_nodes.retain(|_key, node| node.deadline > now);
+        last_pool_size - self.found_nodes.len()
     }
 
 

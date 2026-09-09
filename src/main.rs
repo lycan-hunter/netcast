@@ -5,7 +5,6 @@ mod channel;
 use log::{error, warn, info, debug, trace};
 use rand;
 use env_logger::{Builder, Env, WriteStyle};
-use std::thread;
 use std::time;
 use std::sync::Arc;
 
@@ -28,7 +27,7 @@ async fn main() {
         8086, 
         String::from("darwin-aarch64-macosx"), 
         [0u8; 32],
-    String::from("NetCast's-Node2"), 
+    String::from("NetCast's-Node"), 
     );
 
     let ether: Arc<BeaconEther>;
@@ -43,23 +42,28 @@ async fn main() {
                 break;
             }
         }
-        thread::sleep(time::Duration::from_secs(3));
+        tokio::time::sleep(time::Duration::from_secs(3)).await;
     }
 
     // First broadcast announcement
-    let result_ann = ether.send_response_broadcast().await;
-    
-    for iface in result_ann {
-        match iface {
-            Ok(_) => (),
-            Err(msg) => 
-                error!("Failed to announcing oneself on one of interfaces: {}", msg),
+    let ether_ann = ether.clone();
+    tokio::spawn(async move {
+        let result_ann = ether_ann.send_response_broadcast().await;
+        
+        for iface in result_ann {
+            match iface {
+                Ok(_) => (),
+                Err(msg) => 
+                    error!("Failed to announce oneself on one of interfaces: {}", msg),
+            }
         }
-    }
+    });
+    
 
     // Task 1: recieving/responsing
     let ether_rr = ether.clone();
     tokio::spawn( async move {
+        
         loop {
             match ether_rr.recv_packet().await {
 
@@ -88,7 +92,7 @@ async fn main() {
                     }
                 }
                 
-                Err(msg) => error!("Failed to recieve packet: {}", msg),
+                Err(msg) => error!("Failed to receive packet: {}", msg),
             }
         }
     });
@@ -99,16 +103,18 @@ async fn main() {
             let mut tick = tokio::time::interval(time::Duration::from_secs(3u64));
             loop {
                 tick.tick().await;
-                ether_gc.found_nodes_gc();
-                debug!("Found nodes pool was cleared by GC");
+                if ether_gc.found_nodes_gc() > 0 {
+                    debug!("Found nodes pool was cleared by GC");
+                }
             }
         });
 
         let ether_hb = ether.clone();
         tokio::spawn(async move {
-            let mut hb_tick = tokio::time::interval(time::Duration::from_secs(5));
             loop {
-                hb_tick.tick().await;
+                tokio::time::sleep(time::Duration::from_secs(5) + 
+                    time::Duration::from_millis(rand::random_range(16..=120))).await;
+
                 match ether_hb.send_heartbeat_broadcast().await {
                     results => {
                         for result in results {
@@ -123,8 +129,8 @@ async fn main() {
         });
 
     
-    info!("NetCast Deamon is up !");
-    loop {
-        tokio::time::sleep(time::Duration::from_secs(3600)).await;
-    }
+    info!("NetCast Daemon is up!");
+    
+    tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+    info!("Shutting down NetCast Daemon...");
 }
