@@ -112,19 +112,18 @@ async fn main() {
         let ether_hb = ether.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(time::Duration::from_secs(5) + 
-                    time::Duration::from_millis(rand::random_range(16..=120))).await;
+                let (base_hb_interval, dynamic_ttl) = ether_hb.get_adaptive_timing();
+                
+                let jitter = std::time::Duration::from_millis(rand::random_range(16..=250));
+                tokio::time::sleep(base_hb_interval + jitter).await;
 
-                match ether_hb.send_heartbeat_broadcast().await {
-                    results => {
-                        for result in results {
-                            if let Err(msg) = result {
-                                error!("Failed to send heartbeat packet: {}", msg);
-                            }
-                        }
+                let results = ether_hb.send_heartbeat_broadcast_with_ttl(dynamic_ttl).await;
+                for result in results {
+                    if let Err(msg) = result {
+                        error!("Failed to send heartbeat packet: {}", msg);
                     }
                 }
-                debug!("Sent heartbeat packet");
+                debug!("Sent adaptive heartbeat packet (nodes: {})", ether_hb.found_nodes().len());
             }
         });
 

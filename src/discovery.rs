@@ -185,4 +185,16 @@ impl BeaconEther {
             self.found_nodes.insert(key, entry);
     }
 
+    pub fn get_adaptive_timing(&self) -> (std::time::Duration, u8) {
+        let nodes_count = self.found_nodes.len();
+
+        if nodes_count >= 150 {
+            (std::time::Duration::from_secs(20), 60)
+        } else if nodes_count >= 50 {
+            (std::time::Duration::from_secs(10), 30)
+        } else {
+            (std::time::Duration::from_secs(5), 15)
+        }
+    }
+
 }
