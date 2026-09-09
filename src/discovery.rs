@@ -80,13 +80,23 @@ impl BeaconEther {
         let mut buf = [0u8; 812];
         let (byte_len, sock_dst) = self.sock.recv_from(&mut buf).await?;
         let packet = NCNRPPacket::deserialize(&buf[..byte_len])?;
+        
+        let own_pkh = match &self.own_bp {
+            NCNRPPacket::Response(resp_payload) => resp_payload.pub_key_hash,
+            _ => [0u8; 32],
+        };
+        
         match &packet {
             NCNRPPacket::Response(rp) => {
-                self.add_found_node(rp.clone());
+                if rp.pub_key_hash != own_pkh {
+                    self.add_found_node(rp.clone());
+                }
             },
             NCNRPPacket::Heartbreat(hp) => {
-                if let Some(mut node) = self.found_nodes.get_mut(&hp.pub_key_hash) {
-                    node.deadline = time::Instant::now() + time::Duration::from_secs(hp.ttl_seconds as u64);
+                if hp.pub_key_hash != own_pkh {
+                    if let Some(mut node) = self.found_nodes.get_mut(&hp.pub_key_hash) {
+                        node.deadline = time::Instant::now() + time::Duration::from_secs(hp.ttl_seconds as u64);
+                    }
                 }
             },
             _ => {},

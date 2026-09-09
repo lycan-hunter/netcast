@@ -10,12 +10,12 @@ use std::time;
 use std::sync::Arc;
 
 use discovery::BeaconEther;
-use discovery::packet::{NCNRPPacket, ResponsePayload, HeartbeatPayload};
+use discovery::packet::{NCNRPPacket, ResponsePayload};
 
 
 #[tokio::main]
 async fn main() {
-    Builder::from_env(Env::default().default_filter_or("info"))
+    Builder::from_env(Env::default().default_filter_or("debug"))
         .format_timestamp(None) 
         .format_module_path(false) 
         .write_style(WriteStyle::Auto) 
@@ -75,6 +75,7 @@ async fn main() {
 
                 Ok((NCNRPPacket::Response(_), addr)) => {
                     info!("Recieved response packet from '{}'", addr.to_string());
+                    debug!("{:?}", ether_rr.found_nodes());
                 }
 
                 Ok((NCNRPPacket::Heartbreat(hp), addr)) => {
