@@ -22,7 +22,6 @@ pub struct BeaconEther {
     found_nodes: dashmap::DashMap<[u8;32], FoundNodeInfo>,
     sock: UdpSocket,
     pub own_bp: NCNRPPacket,
-    own_hbp: NCNRPPacket,
     interfaces: Vec<(Ipv4Addr, Ipv4Addr)>, // INTERFACE_IP [0], BROADCAST_IP [1]
 }
 
@@ -34,8 +33,6 @@ impl BeaconEther {
             found_nodes: DashMap::new(), 
             sock,
             own_bp: NCNRPPacket::Response(bp.clone()),
-            own_hbp: NCNRPPacket::Heartbeat(HeartbeatPayload {
-                 ttl_seconds: 15, pub_key_hash: bp.pub_key_hash }),
             interfaces: BeaconEther::get_all_bcast_targets(),
             }
         )

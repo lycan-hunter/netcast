@@ -78,17 +78,25 @@ async fn main() {
                 }
 
                 Ok((NCNRPPacket::Response(_), addr)) => {
-                    info!("Received response packet from '{}'", addr.to_string());
+                    info!("Received response packet from '{}'", addr);
                     debug!("{:?}", ether_rr.found_nodes());
                 }
 
                 Ok((NCNRPPacket::Heartbeat(hp), addr)) => {
-                    debug!("Received heartbeat packet from '{}'", addr.to_string());
+                    debug!("Received heartbeat packet from '{addr}'");
+                    
                     if !ether_rr.is_in_found_nodes(&hp.pub_key_hash) {
-                        match ether_rr.send_request_to(addr).await {
-                            Err(msg) => error!("Failed to send request to '{}': {}", addr.to_string(), msg),
-                            _ => (),
-                        }
+                        let ether_req = ether_rr.clone();
+                        tokio::spawn(async move {
+                            let delay = rand::random_range(10..=200);
+                            tokio::time::sleep(time::Duration::from_millis(delay)).await;
+
+                            if !ether_req.is_in_found_nodes(&hp.pub_key_hash) {
+                                if let Err(msg) = ether_req.send_request_to(addr).await {
+                                    error!("Failed to send request to '{addr}': {msg}");
+                                }
+                            }
+                        });
                     }
                 }
                 
