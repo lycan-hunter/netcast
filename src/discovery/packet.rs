@@ -5,7 +5,7 @@ use std::io;
 pub enum NCNRPPacket {
     Request = 0x01,
     Response(ResponsePayload) = 0x02,
-    Heartbreat(HeartbeatPayload) = 0x03,
+    Heartbeat(HeartbeatPayload) = 0x03,
 }
 
 impl NCNRPPacket {
@@ -25,7 +25,7 @@ impl NCNRPPacket {
                 buf.extend_from_slice(&(payload_bytes.len() as u32).to_be_bytes());
                 buf.extend_from_slice(&payload_bytes);
             }
-            NCNRPPacket::Heartbreat(payload) => {
+            NCNRPPacket::Heartbeat(payload) => {
                 buf.push(0x03); // Type 0x03
                 let payload_bytes = payload.serialize();
                 buf.extend_from_slice(&payload_bytes); // Длина для статичного пакета не пишется
@@ -76,7 +76,7 @@ impl NCNRPPacket {
                 }
                 
                 let payload = HeartbeatPayload::deserialize(&bytes[4..])?;
-                Ok(NCNRPPacket::Heartbreat(payload))
+                Ok(NCNRPPacket::Heartbeat(payload))
             }
             _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown packet type")),
         }

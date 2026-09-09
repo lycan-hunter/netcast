@@ -28,12 +28,12 @@ async fn main() {
         8086, 
         String::from("darwin-aarch64-macosx"), 
         [0u8; 32],
-    String::from("NetCast's-Node"), 
+    String::from("NetCast's-Node2"), 
     );
 
     let ether: Arc<BeaconEther>;
     loop {
-        match BeaconEther::new(own_discovery_packet.clone()).await {
+        match BeaconEther::new_with_port(own_discovery_packet.clone(), 31337).await {
             Err(msg) => {
                 error!("Failed to start netcast interface: {}", msg);
                 info!("Retrying to start netcast interface...");
@@ -74,11 +74,12 @@ async fn main() {
                 }
 
                 Ok((NCNRPPacket::Response(_), addr)) => {
-                    info!("Recieved response packet from '{}'", addr.to_string());
+                    info!("Received response packet from '{}'", addr.to_string());
                     debug!("{:?}", ether_rr.found_nodes());
                 }
 
-                Ok((NCNRPPacket::Heartbreat(hp), addr)) => {
+                Ok((NCNRPPacket::Heartbeat(hp), addr)) => {
+                    debug!("Received heartbeat packet from '{}'", addr.to_string());
                     if !ether_rr.is_in_found_nodes(&hp.pub_key_hash) {
                         match ether_rr.send_request_to(addr).await {
                             Err(msg) => error!("Failed to send request to '{}': {}", addr.to_string(), msg),
@@ -99,6 +100,25 @@ async fn main() {
             loop {
                 tick.tick().await;
                 ether_gc.found_nodes_gc();
+                debug!("Found nodes pool was cleared by GC");
+            }
+        });
+
+        let ether_hb = ether.clone();
+        tokio::spawn(async move {
+            let mut hb_tick = tokio::time::interval(time::Duration::from_secs(5));
+            loop {
+                hb_tick.tick().await;
+                match ether_hb.send_heartbeat_broadcast().await {
+                    results => {
+                        for result in results {
+                            if let Err(msg) = result {
+                                error!("Failed to send heartbeat packet: {}", msg);
+                            }
+                        }
+                    }
+                }
+                debug!("Sent heartbeat packet");
             }
         });
 

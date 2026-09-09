@@ -34,7 +34,7 @@ impl BeaconEther {
             found_nodes: DashMap::new(), 
             sock,
             own_bp: NCNRPPacket::Response(bp.clone()),
-            own_hbp: NCNRPPacket::Heartbreat(HeartbeatPayload {
+            own_hbp: NCNRPPacket::Heartbeat(HeartbeatPayload {
                  ttl_seconds: 15, pub_key_hash: bp.pub_key_hash }),
             interfaces: BeaconEther::get_all_bcast_targets(),
             }
@@ -77,36 +77,45 @@ impl BeaconEther {
     }
 
     pub async fn recv_packet(&self) -> std::io::Result<(NCNRPPacket, SocketAddrV4)> {
-        let mut buf = [0u8; 812];
-        let (byte_len, sock_dst) = self.sock.recv_from(&mut buf).await?;
-        let packet = NCNRPPacket::deserialize(&buf[..byte_len])?;
-        
-        let own_pkh = match &self.own_bp {
-            NCNRPPacket::Response(resp_payload) => resp_payload.pub_key_hash,
-            _ => [0u8; 32],
-        };
-        
-        match &packet {
-            NCNRPPacket::Response(rp) => {
-                if rp.pub_key_hash != own_pkh {
+        loop {
+            let mut buf = [0u8; 812];
+            let (byte_len, sock_dst) = self.sock.recv_from(&mut buf).await?;
+            let packet = NCNRPPacket::deserialize(&buf[..byte_len])?;
+            
+            let own_pkh = match &self.own_bp {
+                NCNRPPacket::Response(resp_payload) => resp_payload.pub_key_hash,
+                _ => [0u8; 32],
+            };
+
+            let is_own_packet = match &packet {
+                NCNRPPacket::Response(rp) => rp.pub_key_hash == own_pkh,
+                NCNRPPacket::Heartbeat(hp) => hp.pub_key_hash == own_pkh,
+                NCNRPPacket::Request => false,
+            };
+
+            if is_own_packet {
+                continue;
+            }
+            
+            match &packet {
+                NCNRPPacket::Response(rp) => {
                     self.add_found_node(rp.clone());
-                }
-            },
-            NCNRPPacket::Heartbreat(hp) => {
-                if hp.pub_key_hash != own_pkh {
-                    if let Some(mut node) = self.found_nodes.get_mut(&hp.pub_key_hash) {
-                        node.deadline = time::Instant::now() + time::Duration::from_secs(hp.ttl_seconds as u64);
+                },
+                NCNRPPacket::Heartbeat(hp) => {
+                    if hp.pub_key_hash != own_pkh {
+                        if let Some(mut node) = self.found_nodes.get_mut(&hp.pub_key_hash) {
+                            node.deadline = time::Instant::now() + time::Duration::from_secs(hp.ttl_seconds as u64);
+                        }
                     }
-                }
-            },
-            _ => {},
+                },
+                _ => {},
+            }
+            if let std::net::SocketAddr::V4(v4_addr) = sock_dst {
+                return Ok((packet, v4_addr))
+            } else {
+                return Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "IPv6 addr not supported yet"))
+            }
         }
-        if let std::net::SocketAddr::V4(v4_addr) = sock_dst {
-            Ok((packet, v4_addr))
-        } else {
-            Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "IPv6 addr not supported yet"))
-        }
-        
 
     }
 
