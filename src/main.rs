@@ -123,7 +123,7 @@ async fn main() {
                         error!("Failed to send heartbeat packet: {}", msg);
                     }
                 }
-                debug!("Sent adaptive heartbeat packet (nodes: {})", ether_hb.found_nodes().len());
+                debug!("Sent heartbeat packet (nodes: {})", ether_hb.found_nodes().len());
             }
         });
 

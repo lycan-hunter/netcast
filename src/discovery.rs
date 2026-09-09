@@ -47,9 +47,12 @@ impl BeaconEther {
 
     pub async fn send_request_broadcast(&self) -> Vec<std::io::Result<usize>> {
         let mut ret: Vec<std::io::Result<usize>> = vec![];
+
+        let bytes = NCNRPPacket::Request.serialize();
+
         for ip_bcast in &self.interfaces {
             ret.push(self.sock
-                .send_to(&NCNRPPacket::Request.serialize(),
+                .send_to(&bytes,
                      SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)).await);
         }
         ret
@@ -63,9 +66,12 @@ impl BeaconEther {
 
     pub async fn send_response_broadcast(&self) -> Vec<std::io::Result<usize>> {
         let mut ret: Vec<std::io::Result<usize>> = vec![];
+
+        let bytes = self.own_bp.serialize();
+
         for ip_bcast in &self.interfaces {
             ret.push(self.sock
-                .send_to(&self.own_bp.serialize(),
+                .send_to(&bytes,
                      SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)).await);
         }
         ret
@@ -119,14 +125,27 @@ impl BeaconEther {
 
     }
 
-    pub async fn send_heartbeat_broadcast(&self) -> Vec<std::io::Result<usize>> {
-        let mut ret: Vec<std::io::Result<usize>> = vec![];
+    pub async fn send_heartbeat_broadcast_with_ttl(&self, ttl_seconds: u16) -> Vec<std::io::Result<usize>> {
+        let mut ret = Vec::with_capacity(self.interfaces.len());
+
+        let packet = NCNRPPacket::Heartbeat(HeartbeatPayload {
+            pub_key_hash: self.get_own_pub_key_hash(),
+            ttl_seconds,
+        });
+
+        let bytes = packet.serialize();
+
         for ip_bcast in &self.interfaces {
             ret.push(self.sock
-                .send_to(&self.own_hbp.serialize(),
+                .send_to(&bytes,
                      SocketAddrV4::new(ip_bcast.1, NETCAST_PORT)).await);
         }
         ret
+    }
+
+    pub async fn send_heartbeat_broadcast(&self) -> Vec<std::io::Result<usize>> {
+        let (_interval, ttl) = self.get_adaptive_timing();
+        self.send_heartbeat_broadcast_with_ttl(ttl).await
     }
 
     pub fn found_nodes_gc(&self) -> usize {
@@ -147,11 +166,16 @@ impl BeaconEther {
             .collect()
     }
 
+    #[inline]
     pub fn is_in_found_nodes(&self, pkh: &[u8; 32]) -> bool {
-        if let Some(_) = self.found_nodes.get(pkh) {
-            true
-        } else {
-            false
+        self.found_nodes.contains_key(pkh)
+    }
+    
+    #[inline]
+    fn get_own_pub_key_hash(&self) -> [u8; 32] {
+        match &self.own_bp {
+            NCNRPPacket::Response(resp) => resp.pub_key_hash,
+            _ => [0u8; 32],
         }
     }
 
@@ -185,7 +209,7 @@ impl BeaconEther {
             self.found_nodes.insert(key, entry);
     }
 
-    pub fn get_adaptive_timing(&self) -> (std::time::Duration, u8) {
+    pub fn get_adaptive_timing(&self) -> (std::time::Duration, u16) {
         let nodes_count = self.found_nodes.len();
 
         if nodes_count >= 150 {
