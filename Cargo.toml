@@ -12,3 +12,6 @@ env_logger = "0.11"
 tokio = {version = "1.53.1", features = ["net", "time", "rt-multi-thread", "macros", "signal", "io-util"] }
 rand = "0.9"
 dashmap = "6.2.1"
+serde = {version = "1.0.229", features = ["derive"] }
+bincode = "1.3"
+unix-ancillary = { version = "0.6", features = ["tokio"] }

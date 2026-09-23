@@ -1,4 +1,5 @@
 use std::io;
+use serde::{Serialize, Deserialize};
 
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,7 +29,7 @@ impl NCNRPPacket {
             NCNRPPacket::Heartbeat(payload) => {
                 buf.push(0x03); // Type 0x03
                 let payload_bytes = payload.serialize();
-                buf.extend_from_slice(&payload_bytes); // Длина для статичного пакета не пишется
+                buf.extend_from_slice(&payload_bytes);
             }
         }
 
@@ -83,7 +84,7 @@ impl NCNRPPacket {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponsePayload {
     // ALL "String" 255 BYTES LENGTH MAX !
     pub ttl_seconds: u16,

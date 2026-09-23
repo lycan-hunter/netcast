@@ -155,7 +155,7 @@ async fn main() {
 
     let unisock_ether: Arc<DaemonEther>;
     loop {
-        match DaemonEther::new().await {
+        match DaemonEther::new(network_ether.clone()).await {
             Err(msg) => {
                 error!("Failed to start netcast unix socket: {}", msg);
                 info!("Retrying to start netcast unix socket...");
@@ -169,39 +169,7 @@ async fn main() {
     }
 
     let unix_ether = unisock_ether.clone();
-    tokio::spawn(async move {
-    loop {
-            let mut stream;
-            match unix_ether.sock.accept().await {
-                Ok((mut unix_stream, _)) => {
-                    stream = unix_stream;
-                    info!("Incoming connection unisock connection");
-                },
-                Err(msg) => {
-                    error!("Failed to create connection: {}", msg);
-                    continue;
-                },
-            };
-
-            tokio::spawn( async move {
-                let mut buf = [0u8; 1024];
-
-                loop {
-                    match stream.read(&mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
-
-                        },
-                        Err(msg) => {
-                            error!("Failed to listen unix socket's client: {}", msg);
-
-                        }
-                    }
-                }
-            });
-
-        }
-    });
+    
 
     info!("NetCast Daemon is up!");
     
