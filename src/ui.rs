@@ -106,7 +106,7 @@ impl DaemonEther {
     async fn read_client_message(stream: &mut UnixStream) -> Result<ClientMessage, Box<dyn std::error::Error + Send + Sync>> {
         let mut len_bytes = [0u8; 4];
         stream.read_exact(&mut len_bytes).await?;
-        let len = u32::from_be_bytes(len_bytes) as usize;
+        let len = u32::from_le_bytes(len_bytes) as usize;
 
         let mut buf = vec![0u8; len];
         stream.read_exact(&mut buf).await?;
@@ -119,7 +119,7 @@ impl DaemonEther {
         let payload = bincode::serialize(msg)?;
         let len = payload.len() as u32;
         
-        let mut full_packet = len.to_be_bytes().to_vec();
+        let mut full_packet = len.to_le_bytes().to_vec();
         full_packet.extend_from_slice(&payload);
 
         if let DaemonMessage::SessionData { fd: Some(owned_fd), .. } = msg {

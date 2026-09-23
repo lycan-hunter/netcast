@@ -168,9 +168,11 @@ async fn main() {
         tokio::time::sleep(time::Duration::from_secs(3)).await;
     }
 
-    let unix_ether = unisock_ether.clone();
+    let unix_ether_runner = unisock_ether.clone();
+    tokio::spawn(async move {
+        unix_ether_runner.run_loop().await;
+    });
     
-
     info!("NetCast Daemon is up!");
     
     tokio::signal::ctrl_c().await.expect("Aborted by SIGTERM");
