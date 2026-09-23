@@ -1,6 +1,8 @@
 mod discovery;
 // mod crypto;
 mod channel;
+mod crypto;
+mod ui;
 
 use log::{error, warn, info, debug, trace};
 use rand;
@@ -8,37 +10,48 @@ use env_logger::{Builder, Env, WriteStyle};
 use std::time;
 use std::sync::Arc;
 
+use ui::DaemonEther;
+
 use discovery::BeaconEther;
 use discovery::packet::{NCNRPPacket, ResponsePayload};
 
+use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+// async fn handle_client(&uether) -> std::io::Result<()> {
+        
 
 #[tokio::main]
 async fn main() {
+    // --- Logger init ---
     Builder::from_env(Env::default().default_filter_or("debug"))
         .format_timestamp(None) 
         .format_module_path(false) 
         .write_style(WriteStyle::Auto) 
         .init();
 
-    // let mut OWN_DEADLINE = time::Instant();
+
+    // ######################
+    // # Network ether init #
+    // ######################
 
     let own_discovery_packet = ResponsePayload::new(
         900, 
         8086, 
         String::from("darwin-aarch64-macosx"), 
-        [0u8; 32],
-    String::from("NetCast's-Node"), 
+        [1u8; 32],
+    String::from("NetCast's-Node612A"), 
     );
 
-    let ether: Arc<BeaconEther>;
+    let network_ether: Arc<BeaconEther>;
     loop {
-        match BeaconEther::new_with_port(own_discovery_packet.clone(), 31337).await {
+        match BeaconEther::new_with_port(own_discovery_packet.clone(), 31338).await {
             Err(msg) => {
                 error!("Failed to start netcast interface: {}", msg);
                 info!("Retrying to start netcast interface...");
             },
             Ok(be) => {
-                ether = Arc::new(be);
+                network_ether = Arc::new(be);
                 break;
             }
         }
@@ -46,9 +59,9 @@ async fn main() {
     }
 
     // First broadcast announcement
-    let ether_ann = ether.clone();
+    let network_ether_ann = network_ether.clone();
     tokio::spawn(async move {
-        let result_ann = ether_ann.send_response_broadcast().await;
+        let result_ann = network_ether_ann.send_response_broadcast().await;
         
         for iface in result_ann {
             match iface {
@@ -61,17 +74,17 @@ async fn main() {
     
 
     // Task 1: recieving/responsing
-    let ether_rr = ether.clone();
+    let network_ether_rr = network_ether.clone();
     tokio::spawn( async move {
         
         loop {
-            match ether_rr.recv_packet().await {
+            match network_ether_rr.recv_packet().await {
 
                 Ok((NCNRPPacket::Request, addr)) => {
 
                     tokio::time::sleep(time::Duration::from_millis(rand::random_range(16..=120))).await;
 
-                    match ether_rr.send_response_to(addr).await {
+                    match network_ether_rr.send_response_to(addr).await {
                         Err(msg) => error!("Failed to send response: {}", msg),
                         Ok(_) => (),
                     }
@@ -79,14 +92,14 @@ async fn main() {
 
                 Ok((NCNRPPacket::Response(_), addr)) => {
                     info!("Received response packet from '{}'", addr);
-                    debug!("{:?}", ether_rr.found_nodes());
+                    debug!("{:?}", network_ether_rr.found_nodes());
                 }
 
                 Ok((NCNRPPacket::Heartbeat(hp), addr)) => {
                     debug!("Received heartbeat packet from '{addr}'");
                     
-                    if !ether_rr.is_in_found_nodes(&hp.pub_key_hash) {
-                        let ether_req = ether_rr.clone();
+                    if !network_ether_rr.is_in_found_nodes(&hp.pub_key_hash) {
+                        let ether_req = network_ether_rr.clone();
                         tokio::spawn(async move {
                             let delay = rand::random_range(10..=200);
                             tokio::time::sleep(time::Duration::from_millis(delay)).await;
@@ -106,38 +119,92 @@ async fn main() {
     });
 
     // Task 2: garbage cleaner
-        let ether_gc = ether.clone();
-        tokio::spawn( async move {
-            let mut tick = tokio::time::interval(time::Duration::from_secs(3u64));
-            loop {
-                tick.tick().await;
-                if ether_gc.found_nodes_gc() > 0 {
-                    debug!("Found nodes pool was cleared by GC");
+    let network_ether_gc = network_ether.clone();
+    tokio::spawn( async move {
+        let mut tick = tokio::time::interval(time::Duration::from_secs(3u64));
+        loop {
+            tick.tick().await;
+            if network_ether_gc.found_nodes_gc() > 0 {
+                debug!("Found nodes pool was cleared by GC");
+            }
+        }
+    });
+    
+    // Task 3: Sending hearbeat packets
+    let network_ether_hb = network_ether.clone();
+    tokio::spawn(async move {
+        loop {
+            let (base_hb_interval, dynamic_ttl) = network_ether_hb.get_adaptive_timing();
+            
+            let jitter = std::time::Duration::from_millis(rand::random_range(16..=250));
+            tokio::time::sleep(base_hb_interval + jitter).await;
+
+            let results = network_ether_hb.send_heartbeat_broadcast_with_ttl(dynamic_ttl).await;
+            for result in results {
+                if let Err(msg) = result {
+                    error!("Failed to send heartbeat packet: {}", msg);
                 }
             }
-        });
+            debug!("Sent heartbeat packet (nodes: {})", network_ether_hb.found_nodes().len());
+        }
+    });
 
-        let ether_hb = ether.clone();
-        tokio::spawn(async move {
-            loop {
-                let (base_hb_interval, dynamic_ttl) = ether_hb.get_adaptive_timing();
-                
-                let jitter = std::time::Duration::from_millis(rand::random_range(16..=250));
-                tokio::time::sleep(base_hb_interval + jitter).await;
+    // ##############################
+    // # Unix socket interface init #
+    // ##############################
 
-                let results = ether_hb.send_heartbeat_broadcast_with_ttl(dynamic_ttl).await;
-                for result in results {
-                    if let Err(msg) = result {
-                        error!("Failed to send heartbeat packet: {}", msg);
+    let unisock_ether: Arc<DaemonEther>;
+    loop {
+        match DaemonEther::new().await {
+            Err(msg) => {
+                error!("Failed to start netcast unix socket: {}", msg);
+                info!("Retrying to start netcast unix socket...");
+            },
+            Ok(de) => {
+                unisock_ether = Arc::new(de);
+                break;
+            }
+        }
+        tokio::time::sleep(time::Duration::from_secs(3)).await;
+    }
+
+    let unix_ether = unisock_ether.clone();
+    tokio::spawn(async move {
+    loop {
+            let mut stream;
+            match unix_ether.sock.accept().await {
+                Ok((mut unix_stream, _)) => {
+                    stream = unix_stream;
+                    info!("Incoming connection unisock connection");
+                },
+                Err(msg) => {
+                    error!("Failed to create connection: {}", msg);
+                    continue;
+                },
+            };
+
+            tokio::spawn( async move {
+                let mut buf = [0u8; 1024];
+
+                loop {
+                    match stream.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+
+                        },
+                        Err(msg) => {
+                            error!("Failed to listen unix socket's client: {}", msg);
+
+                        }
                     }
                 }
-                debug!("Sent heartbeat packet (nodes: {})", ether_hb.found_nodes().len());
-            }
-        });
+            });
 
-    
+        }
+    });
+
     info!("NetCast Daemon is up!");
     
-    tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+    tokio::signal::ctrl_c().await.expect("Aborted by SIGTERM");
     info!("Shutting down NetCast Daemon...");
 }
