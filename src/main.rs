@@ -72,6 +72,8 @@ async fn main() {
         }
     });
     
+    debug!("NetCast's network ether is up");
+    
 
     // Task 1: recieving/responsing
     let network_ether_rr = network_ether.clone();
@@ -172,7 +174,8 @@ async fn main() {
     tokio::spawn(async move {
         unix_ether_runner.run_loop().await;
     });
-    
+    debug!("NetCast's unix socket is up");
+
     info!("NetCast Daemon is up!");
     
     tokio::signal::ctrl_c().await.expect("Aborted by SIGTERM");
