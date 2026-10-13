@@ -15,6 +15,8 @@ use ui::DaemonEther;
 use discovery::BeaconEther;
 use discovery::packet::{NCNRPPacket, ResponsePayload};
 
+use crypto::OwnSecret;
+
 use tokio::net::{UnixListener, UnixStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -30,6 +32,12 @@ async fn main() {
         .write_style(WriteStyle::Auto) 
         .init();
 
+    // ############################
+    // # Cryptography module init #
+    // ############################
+
+    let secret = OwnSecret::new().await.unwrap();
+    debug!("Pub Key: {:?}, private {:?}", secret.get_pub_key_hash().await, secret.get_key_pair().await);
 
     // ######################
     // # Network ether init #
