@@ -25,21 +25,15 @@ const NETCASTKEY_PATH: &str = "./netcast.key";
 
 // }
 
-pub enum PeerHelloType {
-    Incoming,
-    Outgoing,
-}
 
-
-pub struct PeerHello {
+pub struct OwnPeerHello {
     pub_key: [u8; 32],
-    pkt_type: PeerHelloType,
     private_eph: EphemeralPrivateKey,
     public_eph: PublicKey,
 }
 
-impl PeerHello {
-    pub async fn new(pub_key: [u8;32], pkt_type: PeerHelloType) -> std::io::Result<Self> {
+impl OwnPeerHello {
+    pub async fn new(pub_key: [u8;32]) -> std::io::Result<Self> {
         let rng = ring::rand::SystemRandom::new();
         let private_eph = agreement::EphemeralPrivateKey::generate(&agreement::X25519, &rng).map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, 
                         "Failed to create ephemeral private key"))?;
@@ -48,7 +42,6 @@ impl PeerHello {
                         "Failed to create ephemeral public key from private"))?;
         Ok(Self {
             pub_key,
-            pkt_type,
             private_eph,
             public_eph,
         })
@@ -64,6 +57,29 @@ impl PeerHello {
     }
 }
 
+pub struct ComePeerHello {
+}
+
+impl ComePeerHello {
+    pub async fn deserialize(buf: &[u8;96], source_pub_key: &[u8;32]) -> std::io::Result<[u8;32]> {
+        let (pub_eph_bytes, sign_bytes) = buf.split_at(32);
+
+        let verification_key = ring::signature::UnparsedPublicKey::new(
+        &ring::signature::ED25519, 
+        source_pub_key
+    );
+    
+    verification_key.verify(pub_eph_bytes, sign_bytes)
+        .map_err(|_| std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied, 
+            "Crypto verification failed: bad signature!"
+        ))?;
+    let mut verified_dh_key = [0u8; 32];
+    verified_dh_key.copy_from_slice(pub_eph_bytes);
+    
+    Ok(verified_dh_key)
+    }
+}
 
 // #[derive(Zeroize)]
 pub struct OwnSecret {
