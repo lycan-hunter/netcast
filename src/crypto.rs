@@ -1,3 +1,5 @@
+use ring::agreement::EphemeralPrivateKey;
+use ring::agreement::PublicKey;
 use ring::signature::Ed25519KeyPair;
 // use zeroize::Zeroize;
 use std::fs;
@@ -23,10 +25,45 @@ const NETCASTKEY_PATH: &str = "./netcast.key";
 
 // }
 
-struct PeerHello {
-    pub_key: [u8; 32],
-
+pub enum PeerHelloType {
+    Incoming,
+    Outgoing,
 }
+
+
+pub struct PeerHello {
+    pub_key: [u8; 32],
+    pkt_type: PeerHelloType,
+    private_eph: EphemeralPrivateKey,
+    public_eph: PublicKey,
+}
+
+impl PeerHello {
+    pub async fn new(pub_key: [u8;32], pkt_type: PeerHelloType) -> std::io::Result<Self> {
+        let rng = ring::rand::SystemRandom::new();
+        let private_eph = agreement::EphemeralPrivateKey::generate(&agreement::X25519, &rng).map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, 
+                        "Failed to create ephemeral private key"))?;
+
+        let public_eph = private_eph.compute_public_key().map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, 
+                        "Failed to create ephemeral public key from private"))?;
+        Ok(Self {
+            pub_key,
+            pkt_type,
+            private_eph,
+            public_eph,
+        })
+    }
+
+    pub async fn serialize(&self, key_pair: &Ed25519KeyPair) -> std::io::Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::new();
+        
+        let pub_eph_key_bytes = self.public_eph.as_ref();
+        buf.extend_from_slice(pub_eph_key_bytes);
+        buf.extend_from_slice(key_pair.sign(pub_eph_key_bytes).as_ref());
+        Ok(buf)
+    }
+}
+
 
 // #[derive(Zeroize)]
 pub struct OwnSecret {
